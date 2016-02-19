@@ -1324,7 +1324,18 @@ class Glpi0855(DyngroupDatabaseHelper):
         session.close()
         return ret
 
+    def getTeamviewerID(self, machine):
+        """
+        Returns the Teamviewer ID of the computer.
 
+        @param machine: computer's instance
+        @type machine: Machine
+
+        @return: tag (glpi_plugin_fusioninventory_agents.tag)
+        @rtype: str
+        """
+        
+        return self.db.execute('SELECT tag FROM glpi_plugin_fusioninventory_agents where computers_id=' + machine.id).fetchone().values()[0]
 
     def getUserProfile(self, user):
         """
@@ -2014,7 +2025,8 @@ class Glpi0855(DyngroupDatabaseHelper):
             .add_column(self.glpi_operatingsystemservicepacks.c.name) \
             .add_column(self.glpi_domains.c.name) \
             .add_column(self.state.c.name) \
-            .add_column(self.fusionagents.c.last_contact) \
+            .add_column(self.fusionagents.c.last_contact)\
+            .add_column(self.fusionagents.c.tag)\
             .select_from(
                 self.machine.outerjoin(self.entities) \
                 .outerjoin(self.locations) \
@@ -2033,7 +2045,7 @@ class Glpi0855(DyngroupDatabaseHelper):
             ret = query.count()
         else:
             ret = []
-            for machine, infocoms, entity, location, os, manufacturer, type, model, servicepack, domain, state, last_contact in query:
+            for machine, infocoms, entity, location, os, manufacturer, type, model, servicepack, domain, state, last_contact, tag in query:
                 endDate = ''
                 if infocoms is not None:
                     endDate = self.getWarrantyEndDate(infocoms)
@@ -2077,13 +2089,23 @@ class Glpi0855(DyngroupDatabaseHelper):
 
                 owner_login, owner_firstname, owner_realname = self.getMachineOwner(machine)
 
-		# Last inventory date
+                # Check if fusion tag is VATCODE--LOCATION--TEAMVIEWERID
+                if tag is not None:
+                    if tag.count('--') == 2:
+                        tag= tag.split('--')[-1]
+                    else:
+                        tag = ''
+                else:
+                    tag= ''
+      
 		date_mod = machine.date_mod
+            
 		if self.fusionagents is not None and last_contact is not None:
 		    date_mod = last_contact
-
+            
                 l = [
                     ['Computer Name', ['computer_name', 'text', machine.name]],
+                    ['Teamviewer ID', tag],
                     ['Description', ['description', 'text', machine.comment]],
                     ['Entity (Location)', '%s' % entityValue],
                     ['Domain', domain],
@@ -2100,7 +2122,7 @@ class Glpi0855(DyngroupDatabaseHelper):
                     ['Inventory Number', ['inventory_number', 'text', machine.otherserial]],
                     ['State', state],
                     ['Warranty End Date', endDate],
-                    ['Last Inventory Date', date_mod.strftime("%Y-%m-%d %H:%M:%S")],
+                    ['Last Inventory Date', date_mod.strftime("%Y-%m-%d %H:%M:%S")],                    
                 ]
                 ret.append(l)
         return ret
@@ -4243,7 +4265,8 @@ class Machine(object):
             ['model',self.computermodels_id],
             ['type',self.computertypes_id],
             ['entity',self.entities_id],
-            ['uuid',Glpi0855().getMachineUUID(self)]
+            ['uuid',Glpi0855().getMachineUUID(self)],
+            ['teamID',Glpi0855().getTeamviewerID(self)]
         ]
 
 class Entities(object):
@@ -4269,7 +4292,7 @@ class FusionLocks(object):
     pass
 
 class FusionAgents(object):
-    to_be_exported = ['last_contact']
+    to_be_exported = ['last_contact', 'tag']
 
 class Disk(object):
     pass
