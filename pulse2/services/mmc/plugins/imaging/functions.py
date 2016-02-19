@@ -44,7 +44,15 @@ from pulse2.database.imaging.types import P2IT, P2ISS, P2IM, P2ERR
 from pulse2.apis.clients.imaging import ImagingApi
 import pulse2.utils
 import threading
-from os import path, makedirs
+from os import path, makedirs, listdir
+import subprocess
+import json
+
+def fromUUID(uuid):
+    return int(uuid.replace('UUID', ''))
+
+def toUUID(id):
+    return "UUID%s" % (str(id))
 
 class ImagingRpcProxy(RpcProxyI):
     checkThread = {}
@@ -513,6 +521,84 @@ class ImagingRpcProxy(RpcProxyI):
         else:
             deferred = []
         return deferred
+
+    def statusReadFile (self, file):
+        logger = logging.getLogger()
+        logger.debug("statusReadFile %s"%file)
+        if not path.isfile(file):
+            return []
+        fichier = open(file)
+        lignes = fichier.readlines()
+        fichier.close()
+        return lignes
+
+    def ClearFileStatusProcess(self):
+        logger = logging.getLogger()
+        logger.debug("ClearFileStatusProcess")
+        fichier = open("/tmp/pulse2-synch-masters.out", "w")
+        fichier.close()
+        return True
+
+    def statusProcessBarClone(self, listfilelog):
+        import json
+        logger = logging.getLogger()
+        logger.debug("statusProcessBarClone %s"%listfilelog)
+        data={}
+        for f in listfilelog:
+            data[f]="0 0% 0MB/s xx:xx:xx wait"
+            if path.isfile("/tmp/%s"%f):
+                if path.getsize("/tmp/%s"%f) > 0:
+                    fichier = open("/tmp/%s"%f, "r")
+                    lignes = fichier.readlines()
+                    fichier.close()
+                    #data[f]=str(lignes).split("\r")[-1]
+                    kk=str(lignes[-1]).split("\r")[-1]
+                    kk = kk.strip()
+                    kkl=kk.split(" ")
+                    kk = [x for x in kkl if x !=""]
+                    if kk[1] == "0%" and len(kk) > 4 :
+                        logger.debug("transfer terminer pour %s"%f)
+                        data[f]="0 100% 0MB/s xx:xx:xx"
+                    else : 
+                        data[f]=' '.join(kk)
+                else:
+                    logger.debug("file empty /tmp/%s"%f)
+            else:
+                logger.debug("file missing /tmp/%s"%f)
+        return json.dumps(data)
+
+    def startProcessClone(self, objetclone):
+        self.ClearFileStatusProcess()
+        logger = logging.getLogger()
+        logger.debug("startProcessClone %s"%objetclone)
+        if not path.isfile("/usr/bin/pulse2-synch-masters"):
+            logger.debug("script /usr/bin/pulse2-synch-masters missing")
+            return
+        if len(objetclone['server_imaging']) == 0:
+            return
+        for k,v in objetclone['server_imaging'].iteritems():
+            logger.debug("/usr/bin/pulse2-synch-masters %s %s %s\n"%(fromUUID(objetclone['location']),fromUUID(k),objetclone['masteruuid']))
+            args = ["nohup", "/bin/bash", "/usr/bin/pulse2-synch-masters", str(fromUUID(objetclone['location'])),str(fromUUID(k)),str(objetclone['masteruuid'])]
+            logger.debug("objname == %s "%(args))
+            subprocess.Popen(args)
+        return
+
+    def checkProcessCloneMasterToLocation(self, name):
+        """ 
+            check script
+        """
+        returnprocesspid=[]
+        s = subprocess.Popen(   "ps aux | grep '%s' |grep -v grep | awk -F \" \" '{  print $2 }' "%name,
+                                shell = True,
+                                stdout = subprocess.PIPE
+                           )        
+        for x in s.stdout:
+            returnprocesspid.append(x.strip(' \t\n\r'))
+        s.stdout.close()
+        return returnprocesspid
+
+
+
 
     def monitorsUDPSender(self,objmenu):
         temp=10;
